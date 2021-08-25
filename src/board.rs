@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Hash, Eq)]
 enum Color {
     NONE,
     BLACK,
@@ -124,18 +124,25 @@ impl Pawn {
 pub struct Board {
     squares: [Pawn; 64], // 0 is left lower corner
     color_to_move: Color,
+    kings_positions: HashMap<Color, i32>,
 }
+
+const FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR";
 
 impl Board {
     pub fn default() -> Board {
-        Board {
+        let mut b = Board {
             squares: [Pawn::default(); 64],
             color_to_move: Color::WHITE,
-        }
+            kings_positions: HashMap::new(),
+        };
+        b.read_fen(FEN);
+        b
     }
 
     pub fn read_fen(&mut self, fen: &str) {
         self.squares = [Pawn::default(); 64]; // reset board
+        self.kings_positions = HashMap::new();
         let piece_from_char: HashMap<char, PawnType> = [
             ('r', PawnType::ROOK),
             ('k', PawnType::KING),
@@ -151,7 +158,7 @@ impl Board {
         let mut rank: i32 = 7;
         let mut file: i32 = 0;
 
-        for (i, c) in fen.chars().enumerate() {
+        for (_i, c) in fen.chars().enumerate() {
             match c {
                 '/' => {
                     file = 0;
@@ -161,17 +168,24 @@ impl Board {
                     if c.is_digit(10) {
                         file += c.to_digit(10).unwrap() as i32;
                     } else {
-                        self.squares[(rank * 8 + file) as usize] = Pawn {
+                        let color = match c.is_lowercase() {
+                            true => Color::BLACK,
+                            false => Color::WHITE,
+                        };
+                        let p = Pawn {
                             p_type: piece_from_char
                                 .get(&char::to_ascii_lowercase(&c))
                                 .unwrap()
                                 .clone(),
-                            color: match c.is_lowercase() {
-                                true => Color::BLACK,
-                                false => Color::WHITE,
-                            },
+                            color,
                             has_moved: false,
                         };
+                        let inx = rank * 8 + file;
+                        self.squares[inx as usize] = p;
+                        if p.p_type == PawnType::KING {
+                            self.kings_positions.insert(color, inx);
+                        }
+
                         file += 1;
                     }
                 }
@@ -179,7 +193,19 @@ impl Board {
         }
     }
 
-    pub fn visualize(&self) -> String {
+    // 1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
+    // Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
+    // 14.Rxh5#"
+    pub fn read_pgn(&mut self, pgn: &str, vis_flag: bool) {
+        let mut counter = 1;
+        loop {
+            let mut pgn = pgn.replace(format!("{}.", counter).as_str(), "");
+            let (m, pgn) = pgn.split_once(" ").unwrap();
+        }
+    }
+
+    #[warn(dead_code)]
+    pub fn visualize(&self) {
         let mut rank = 7;
         let mut file = 0;
         let mut board = String::new();
@@ -201,12 +227,21 @@ impl Board {
             rank -= 1;
             file = 0;
         }
-        board
+        println!("{}", board)
+    }
+
+    // translate_move gets algebraic notation and translates it to move
+    // e.g. Nxe5, Qh5+, g5, hxg5+
+    fn translate_move(&self, m: &str) -> Result<(i32, i32), &'static str> {
+        let (first, second) = m.split_at(2);
+        match first {
+            "h" => return Err("not implemented"),
+        }
     }
 
     // make_move validates move and make it
     // m will be always like this: a2a4 meaning that piece from a2 moves to a4
-    pub fn make_move(&self, m: &str) -> Result<(), &'static str> {
+    pub fn make_move(&mut self, m: &str) -> Result<(), &'static str> {
         let (first, second) = m.split_at(2);
         let first_pos = self.translate_position(first);
         let second_pos = self.translate_position(second);
@@ -214,7 +249,7 @@ impl Board {
         self.validate_move(first_pos, second_pos)
     }
 
-    fn validate_move(&self, from: i32, to: i32) -> Result<(), &'static str> {
+    fn validate_move(&mut self, from: i32, to: i32) -> Result<(), &'static str> {
         let piece = self.squares[from as usize];
         let position_to = self.squares[to as usize];
 
@@ -228,6 +263,31 @@ impl Board {
             return Err("piece is none, position_to is occupied by the same color piece or it is not your move");
         }
 
+        match self.is_move_possible(&piece, from, to) {
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        };
+
+        self.squares[from as usize] = Pawn::default();
+        self.squares[to as usize] = piece;
+
+        // check for check
+        let king_pos = self.kings_positions.get(&self.color_to_move).unwrap();
+        for (inx, p) in self.squares.iter().enumerate() {
+            if piece.color != p.color && !p.is_none() {
+                if self.is_move_possible(p, inx as i32, *king_pos).is_ok() {
+                    // rollback changes
+                    self.squares[from as usize] = piece;
+                    self.squares[to as usize] = Pawn::default();
+
+                    return Err("there will be check after a move");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn is_move_possible(&self, piece: &Pawn, from: i32, to: i32) -> Result<(), &'static str> {
         let available_moves = piece.get_moves();
         if !available_moves.contains(&(to - from)) {
             return Err("that piece cannot make moves like that!");
@@ -237,13 +297,13 @@ impl Board {
         if piece.is_sliding() {
             let sliding_moves = piece.get_sliding_moves();
             let mut blocked = false;
-            let mut from_temp = from.clone();
             let mut is_valid = false;
             for m in &sliding_moves {
+                let mut from_temp = from.clone();
                 loop {
                     from_temp += m;
                     if from_temp > 63 || from_temp < 0 {
-                        break
+                        break;
                     }
                     if from_temp == to {
                         if blocked {
@@ -262,16 +322,13 @@ impl Board {
                 blocked = false;
             }
         }
-
-        println!("{:?}", piece.get_moves());
-
         Ok(())
     }
 
     fn translate_position(&self, pos: &str) -> i32 {
         let mut inx: i32 = 0;
         let (col, row) = pos.split_at(1);
-        col.chars().for_each(|c| inx += (c as i32 - 'a' as i32));
+        col.chars().for_each(|c| inx += c as i32 - 'a' as i32);
         row.chars()
             .for_each(|c| inx += (c.to_digit(10).unwrap() as i32 - 1) * 8);
         inx
@@ -281,12 +338,11 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use crate::board;
-    use crate::board::Color;
+    use crate::board::{Board, Color};
 
     #[test]
     fn block_detection() {
         let mut b = board::Board::default();
-        b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR");
         assert_eq!(b.make_move("c1g5").unwrap(), ());
 
         b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
@@ -295,5 +351,55 @@ mod tests {
         b.read_fen("q7/pppppppp/8/8/8/8/8/8");
         b.color_to_move = Color::BLACK;
         assert_eq!(b.make_move("a8a1").err().unwrap(), "your move is blocked");
+    }
+
+    #[test]
+    fn invalid_move() {
+        let mut b = board::Board::default();
+        b.read_fen("r7/8/8/8/8/8/8/8");
+        b.color_to_move = Color::BLACK;
+        assert_eq!(
+            b.make_move("a8b1").err().unwrap(),
+            "that piece cannot make moves like that!"
+        );
+    }
+
+    #[test]
+    fn king_position() {
+        let b = board::Board::default();
+        assert_eq!(*b.kings_positions.get(&Color::BLACK).unwrap(), 60);
+        assert_eq!(*b.kings_positions.get(&Color::WHITE).unwrap(), 4);
+    }
+
+    #[test]
+    fn blocked_move() {
+        let mut b = board::Board::default();
+        b.color_to_move = Color::BLACK;
+
+        b.read_fen("r7/p7/8/8/8/8/8/8");
+        assert_eq!(b.make_move("a8a1").err().unwrap(), "your move is blocked");
+    }
+
+    #[test]
+    fn check_after_move() {
+        let mut b = board::Board::default();
+        b.color_to_move = Color::BLACK;
+        b.read_fen("k7/q7/8/8/8/8/R7/K7");
+        assert_eq!(
+            b.make_move("a7b7").err().unwrap(),
+            "there will be check after a move"
+        );
+
+        b.read_fen("k7/q7/p7/8/8/8/R7/K7");
+        assert_eq!(b.make_move("a7b7").is_ok(), true);
+    }
+
+    #[test]
+    fn read_pgn() {
+        let pgn = "1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
+Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
+14.Rxh5#";
+        let mut b = Board::default();
+        b.read_pgn(pgn, true);
     }
 }
