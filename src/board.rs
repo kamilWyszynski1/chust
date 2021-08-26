@@ -1,3 +1,7 @@
+#![allow(warnings, unused)]
+
+use std::borrow::Borrow;
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Hash, Eq)]
@@ -7,8 +11,18 @@ enum Color {
     WHITE,
 }
 
+impl Color {
+    fn opposite(&self) -> Self {
+        match self {
+            Color::NONE => Color::NONE,
+            Color::BLACK => Color::WHITE,
+            Color::WHITE => Color::BLACK,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
-enum PawnType {
+enum PieceType {
     NONE,
     KING,
     PAWN,
@@ -20,25 +34,25 @@ enum PawnType {
 
 #[derive(Clone, Copy)]
 struct Pawn {
-    p_type: PawnType,
+    p_type: PieceType,
     color: Color,
     has_moved: bool,
 }
 
 impl Pawn {
     pub fn is_none(&self) -> bool {
-        self.p_type == PawnType::NONE
+        self.p_type == PieceType::NONE
     }
 
     pub fn is_sliding(&self) -> bool {
         return match self.p_type {
-            PawnType::BISHOP | PawnType::ROOK | PawnType::QUEEN => true,
+            PieceType::BISHOP | PieceType::ROOK | PieceType::QUEEN => true,
             _ => false,
         };
     }
 
     pub fn get_moves(&self) -> Vec<i32> {
-        if self.p_type == PawnType::NONE {
+        if self.p_type == PieceType::NONE {
             return Vec::new();
         }
         // TODO store as static
@@ -67,27 +81,27 @@ impl Pawn {
         }
 
         // TODO: handle taking pieces
-        let mut pawn_moves = vec![8 * modifier];
+        let mut pawn_moves = vec![8 * modifier, 7 * modifier, 9 * modifier];
         if !self.has_moved {
             pawn_moves.push(16 * modifier);
         }
 
         return match self.p_type {
-            PawnType::NONE => Vec::new(),
-            PawnType::KING => vec![-1, 7, 8, 9, 1, -7, -8, -9],
-            PawnType::PAWN => pawn_moves,
-            PawnType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
-            PawnType::BISHOP => bishop_moves,
-            PawnType::ROOK => rook_moves,
-            PawnType::QUEEN => queen_moves,
+            PieceType::NONE => Vec::new(),
+            PieceType::KING => vec![-1, 7, 8, 9, 1, -7, -8, -9],
+            PieceType::PAWN => pawn_moves,
+            PieceType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
+            PieceType::BISHOP => bishop_moves,
+            PieceType::ROOK => rook_moves,
+            PieceType::QUEEN => queen_moves,
         };
     }
 
     pub fn get_sliding_moves(&self) -> Vec<i32> {
         return match self.p_type {
-            PawnType::BISHOP => vec![9, 7, -9, -7],
-            PawnType::ROOK => vec![8, 1, -8, -1],
-            PawnType::QUEEN => vec![9, 7, -9, -7, 8, 1, -8, -1],
+            PieceType::BISHOP => vec![9, 7, -9, -7],
+            PieceType::ROOK => vec![8, 1, -8, -1],
+            PieceType::QUEEN => vec![9, 7, -9, -7, 8, 1, -8, -1],
             _ => Vec::new(),
         };
     }
@@ -96,7 +110,7 @@ impl Pawn {
 impl Pawn {
     fn default() -> Self {
         Pawn {
-            p_type: PawnType::NONE,
+            p_type: PieceType::NONE,
             color: Color::NONE,
             has_moved: false,
         }
@@ -104,13 +118,13 @@ impl Pawn {
 
     fn visualize(&self) -> String {
         let ch = match self.p_type {
-            PawnType::NONE => "",
-            PawnType::KING => "k",
-            PawnType::PAWN => "p",
-            PawnType::KNIGHT => "n",
-            PawnType::BISHOP => "b",
-            PawnType::ROOK => "r",
-            PawnType::QUEEN => "q",
+            PieceType::NONE => "",
+            PieceType::KING => "k",
+            PieceType::PAWN => "p",
+            PieceType::KNIGHT => "n",
+            PieceType::BISHOP => "b",
+            PieceType::ROOK => "r",
+            PieceType::QUEEN => "q",
         };
 
         return match self.color {
@@ -121,10 +135,12 @@ impl Pawn {
     }
 }
 
+#[derive(Clone)]
 pub struct Board {
     squares: [Pawn; 64], // 0 is left lower corner
     color_to_move: Color,
     kings_positions: HashMap<Color, i32>,
+    debug: bool,
 }
 
 const FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR";
@@ -135,21 +151,26 @@ impl Board {
             squares: [Pawn::default(); 64],
             color_to_move: Color::WHITE,
             kings_positions: HashMap::new(),
+            debug: false,
         };
         b.read_fen(FEN);
         b
     }
 
+    pub fn allow_debug(&mut self) {
+        self.debug = true
+    }
+
     pub fn read_fen(&mut self, fen: &str) {
         self.squares = [Pawn::default(); 64]; // reset board
         self.kings_positions = HashMap::new();
-        let piece_from_char: HashMap<char, PawnType> = [
-            ('r', PawnType::ROOK),
-            ('k', PawnType::KING),
-            ('p', PawnType::PAWN),
-            ('q', PawnType::QUEEN),
-            ('b', PawnType::BISHOP),
-            ('n', PawnType::KNIGHT),
+        let piece_from_char: HashMap<char, PieceType> = [
+            ('r', PieceType::ROOK),
+            ('k', PieceType::KING),
+            ('p', PieceType::PAWN),
+            ('q', PieceType::QUEEN),
+            ('b', PieceType::BISHOP),
+            ('n', PieceType::KNIGHT),
         ]
         .iter()
         .cloned()
@@ -182,7 +203,7 @@ impl Board {
                         };
                         let inx = rank * 8 + file;
                         self.squares[inx as usize] = p;
-                        if p.p_type == PawnType::KING {
+                        if p.p_type == PieceType::KING {
                             self.kings_positions.insert(color, inx);
                         }
 
@@ -196,12 +217,147 @@ impl Board {
     // 1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
     // Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
     // 14.Rxh5#"
-    pub fn read_pgn(&mut self, pgn: &str, vis_flag: bool) {
-        let mut counter = 1;
+    pub fn read_pgn(&mut self, pgn: &str, vis_flag: bool) -> Result<(), &'static str> {
+        let mut game = String::from(pgn.replace("\n", "").replace("  ", " "));
+        let mut general_counter = 1;
+        let mut color_counter = 0;
         loop {
-            let mut pgn = pgn.replace(format!("{}.", counter).as_str(), "");
-            let (m, pgn) = pgn.split_once(" ").unwrap();
+            if game.len() == 0 {
+                break;
+            }
+            if color_counter == 0 {
+                game = game.replacen(format!("{}.", general_counter).as_str(), "", 1);
+            }
+            let temp_game = game.to_owned();
+            let (chess_move, trimmed) = temp_game.split_once(" ").unwrap();
+            game = String::from(trimmed);
+
+            match self.make_pgn_move(chess_move) {
+                Err(e) => return Err(e),
+                _ => {}
+            }
+            if color_counter == 1 {
+                color_counter = 0;
+                general_counter += 1;
+            } else {
+                color_counter += 1;
+            }
         }
+        Ok(())
+    }
+
+    fn make_pgn_move(&mut self, m: &str) -> Result<(), &'static str> {
+        let (from, to) = match self.translate_pgn_move(m) {
+            Ok((from, to)) => (from, to),
+            Err(err) => return Err(err),
+        };
+        if self.debug {
+            println!("png move: {}, ({}, {})", m, from, to)
+        }
+        let from = from as usize;
+        let to = to as usize;
+        Ok(())
+    }
+
+    fn make_move(&mut self, from: usize, to: usize) {
+        self.squares[to] = self.squares[from];
+        self.squares[to].has_moved = true;
+        self.squares[from] = Pawn::default();
+        self.color_to_move = self.color_to_move.opposite();
+        if self.squares[to].p_type == PieceType::KING {
+            self.kings_positions
+                .insert(self.squares[to].color, to as i32);
+        }
+    }
+
+    // translate_move gets algebraic notation and translates it to move
+    // e.g. Nxe5, Qh5+, g5, hxg5+
+    fn translate_pgn_move(&mut self, m: &str) -> Result<(i32, i32), &'static str> {
+        if m == "O-O" {
+            // short castle
+            unimplemented!("short castle")
+        } else if m == "O-O-O" {
+            // long castle
+            unimplemented!("long castle")
+        }
+
+        let mut pawn_move = false;
+        let pawn_letters = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
+        let m = m.replace("x", "").replace("+", "");
+
+        for l in &pawn_letters {
+            if m.starts_with(l) {
+                pawn_move = true;
+                break;
+            }
+        }
+
+        let piece_to_find;
+        let places;
+        let direction;
+        if pawn_move {
+            piece_to_find = PieceType::PAWN;
+            if m.len() == 3 {
+                // pawn takes
+                let (first, second) = m.split_at(1);
+                places = self.find_pawn_places(first);
+                direction = self.translate_position(second);
+            } else {
+                // basic move
+                direction = self.translate_position(m.as_str());
+                let (first, _) = m.split_at(1);
+                places = self.find_pawn_places(first);
+            }
+        } else {
+            let (first, second) = m.split_at(1);
+            let piece_to_find = match first {
+                "N" => PieceType::KNIGHT,
+                "Q" => PieceType::QUEEN,
+                "B" => PieceType::BISHOP,
+                "R" => PieceType::ROOK,
+                "K" => PieceType::KING,
+                _ => return Err("invalid piece"),
+            };
+            places = self.find_piece_places(piece_to_find, self.color_to_move);
+            direction = self.translate_position(second);
+        }
+        for place in &places {
+            if self.validate_move(*place, direction).is_ok() {
+                return Ok((*place, direction));
+            }
+        }
+        return Err("invalid move");
+    }
+
+    fn find_piece_places(&self, piece_type: PieceType, color: Color) -> Vec<i32> {
+        let mut places = Vec::new();
+
+        self.squares.iter().enumerate().for_each(|(i, p)| {
+            if p.p_type == piece_type && p.color == color {
+                places.push(i as i32)
+            }
+        });
+        places
+    }
+
+    // find_pawn_places takes e.g. 'e' and returns all pawn position that is on 'e' line
+    fn find_pawn_places(&self, line: &str) -> Vec<i32> {
+        let mut places = Vec::new();
+        if line.len() != 1 {
+            panic!("line len must be 1")
+        }
+        let mut inx = 0;
+        line.chars().for_each(|c| inx = c as i32 - 'a' as i32); // only 1 iteration
+
+        for i in 0..7 {
+            let index = inx + 8 * i;
+            let p = self.squares[index as usize];
+            if p.p_type == PieceType::PAWN && p.color == self.color_to_move {
+                places.push(index);
+            }
+        }
+
+        places
     }
 
     #[warn(dead_code)]
@@ -230,18 +386,9 @@ impl Board {
         println!("{}", board)
     }
 
-    // translate_move gets algebraic notation and translates it to move
-    // e.g. Nxe5, Qh5+, g5, hxg5+
-    fn translate_move(&self, m: &str) -> Result<(i32, i32), &'static str> {
-        let (first, second) = m.split_at(2);
-        match first {
-            "h" => return Err("not implemented"),
-        }
-    }
-
     // make_move validates move and make it
     // m will be always like this: a2a4 meaning that piece from a2 moves to a4
-    pub fn make_move(&mut self, m: &str) -> Result<(), &'static str> {
+    pub fn make_move_internal_notation(&mut self, m: &str) -> Result<(), &'static str> {
         let (first, second) = m.split_at(2);
         let first_pos = self.translate_position(first);
         let second_pos = self.translate_position(second);
@@ -249,11 +396,10 @@ impl Board {
         self.validate_move(first_pos, second_pos)
     }
 
+    // validate_move validates if move is legit. It checks every aspect of a game.
     fn validate_move(&mut self, from: i32, to: i32) -> Result<(), &'static str> {
         let piece = self.squares[from as usize];
         let position_to = self.squares[to as usize];
-
-        println!("from: {}, to: {}", from, to);
 
         // TODO: check if there won't be check on us
         if piece.is_none()
@@ -268,25 +414,46 @@ impl Board {
             Err(e) => return Err(e),
         };
 
-        self.squares[from as usize] = Pawn::default();
-        self.squares[to as usize] = piece;
+        let mut squares_copy = self.squares.clone();
+        squares_copy[from as usize] = Pawn::default();
+        squares_copy[to as usize] = piece;
+        let mut kings_positions = self.kings_positions.clone();
+        if piece.p_type == PieceType::KING {
+            kings_positions.insert(piece.color, to);
+        }
 
-        // check for check
-        let king_pos = self.kings_positions.get(&self.color_to_move).unwrap();
-        for (inx, p) in self.squares.iter().enumerate() {
-            if piece.color != p.color && !p.is_none() {
-                if self.is_move_possible(p, inx as i32, *king_pos).is_ok() {
-                    // rollback changes
-                    self.squares[from as usize] = piece;
-                    self.squares[to as usize] = Pawn::default();
+        if self.is_check(piece.color, squares_copy, &kings_positions) {
+            return Err("there will be check after a move");
+        }
 
-                    return Err("there will be check after a move");
-                }
-            }
+        if self.debug {
+            println!(
+                "check detected: {}",
+                self.is_check(piece.color.opposite(), squares_copy, &kings_positions)
+            )
         }
         Ok(())
     }
 
+    fn is_check(
+        &self,
+        color: Color,
+        squares_copy: [Pawn; 64],
+        kings_positions: &HashMap<Color, i32>,
+    ) -> bool {
+        // check for check
+        let king_pos = kings_positions.get(&color).unwrap();
+        for (inx, p) in squares_copy.iter().enumerate() {
+            if color != p.color && !p.is_none() {
+                if self.is_move_possible(p, inx as i32, *king_pos).is_ok() {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // is_move_possible checks is move is 'physically' legit.
     fn is_move_possible(&self, piece: &Pawn, from: i32, to: i32) -> Result<(), &'static str> {
         let available_moves = piece.get_moves();
         if !available_moves.contains(&(to - from)) {
@@ -343,14 +510,20 @@ mod tests {
     #[test]
     fn block_detection() {
         let mut b = board::Board::default();
-        assert_eq!(b.make_move("c1g5").unwrap(), ());
+        assert_eq!(b.make_move_internal_notation("c1g5").unwrap(), ());
 
         b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
-        assert_eq!(b.make_move("c1g5").err().unwrap(), "your move is blocked");
+        assert_eq!(
+            b.make_move_internal_notation("c1g5").err().unwrap(),
+            "your move is blocked"
+        );
 
         b.read_fen("q7/pppppppp/8/8/8/8/8/8");
         b.color_to_move = Color::BLACK;
-        assert_eq!(b.make_move("a8a1").err().unwrap(), "your move is blocked");
+        assert_eq!(
+            b.make_move_internal_notation("a8a1").err().unwrap(),
+            "your move is blocked"
+        );
     }
 
     #[test]
@@ -359,7 +532,7 @@ mod tests {
         b.read_fen("r7/8/8/8/8/8/8/8");
         b.color_to_move = Color::BLACK;
         assert_eq!(
-            b.make_move("a8b1").err().unwrap(),
+            b.make_move_internal_notation("a8b1").err().unwrap(),
             "that piece cannot make moves like that!"
         );
     }
@@ -377,7 +550,10 @@ mod tests {
         b.color_to_move = Color::BLACK;
 
         b.read_fen("r7/p7/8/8/8/8/8/8");
-        assert_eq!(b.make_move("a8a1").err().unwrap(), "your move is blocked");
+        assert_eq!(
+            b.make_move_internal_notation("a8a1").err().unwrap(),
+            "your move is blocked"
+        );
     }
 
     #[test]
@@ -386,20 +562,61 @@ mod tests {
         b.color_to_move = Color::BLACK;
         b.read_fen("k7/q7/8/8/8/8/R7/K7");
         assert_eq!(
-            b.make_move("a7b7").err().unwrap(),
+            b.make_move_internal_notation("a7b7").err().unwrap(),
             "there will be check after a move"
         );
 
         b.read_fen("k7/q7/p7/8/8/8/R7/K7");
-        assert_eq!(b.make_move("a7b7").is_ok(), true);
+        assert_eq!(b.make_move_internal_notation("a7b7").is_ok(), true);
     }
 
     #[test]
     fn read_pgn() {
-        let pgn = "1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
-Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
-14.Rxh5#";
+        let mut pgn = "1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
+    Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
+    14.Rxh5#";
         let mut b = Board::default();
-        b.read_pgn(pgn, true);
+        b.allow_debug();
+        assert_eq!(b.read_pgn(pgn, true).err().unwrap(), "");
+    }
+
+    #[test]
+    fn translate_pgn_move() {
+        let mut b = Board::default();
+        assert_eq!(b.translate_pgn_move("Nxe5").err().unwrap(), "invalid move");
+        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (1, 18));
+        assert_eq!(b.translate_pgn_move("Nf3").unwrap(), (6, 21));
+        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (1, 18));
+        assert_eq!(b.translate_pgn_move("Na3").unwrap(), (1, 16));
+        assert_eq!(b.translate_pgn_move("Nh3").unwrap(), (6, 23));
+
+        b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/8/RNBQKBNR");
+        // white square bishop
+        assert_eq!(b.translate_pgn_move("Be2").unwrap(), (5, 12));
+        assert_eq!(b.translate_pgn_move("Bd3").unwrap(), (5, 19));
+        assert_eq!(b.translate_pgn_move("Bc4").unwrap(), (5, 26));
+        assert_eq!(b.translate_pgn_move("Bb5").unwrap(), (5, 33));
+        assert_eq!(b.translate_pgn_move("Ba6").unwrap(), (5, 40));
+    }
+
+    #[test]
+    fn translate_pgn_move_pawns() {
+        let mut b = Board::default();
+        assert_eq!(b.translate_pgn_move("e4").unwrap(), (12, 28));
+        assert_eq!(b.translate_pgn_move("e3").unwrap(), (12, 20));
+
+        assert_eq!(b.translate_pgn_move("a4").unwrap(), (8, 24));
+        assert_eq!(b.translate_pgn_move("a3").unwrap(), (8, 16));
+
+        assert_eq!(b.translate_pgn_move("h4").unwrap(), (15, 31));
+        assert_eq!(b.translate_pgn_move("h3").unwrap(), (15, 23));
+
+        // takes
+        b.read_fen("k7/8/8/8/8/p7/PPPPPPPP/K7");
+        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (9, 16));
+
+        b.read_fen("8/8/8/8/1k6/p7/PPPPPPPP/K7");
+        b.allow_debug();
+        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (9, 16));
     }
 }
