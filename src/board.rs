@@ -1,148 +1,15 @@
 #![allow(warnings, unused)]
 
+use crate::piece::{Color, Piece, PieceType};
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 
-#[derive(Clone, Copy, PartialEq, Hash, Eq)]
-enum Color {
-    NONE,
-    BLACK,
-    WHITE,
-}
-
-impl Color {
-    fn opposite(&self) -> Self {
-        match self {
-            Color::NONE => Color::NONE,
-            Color::BLACK => Color::WHITE,
-            Color::WHITE => Color::BLACK,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum PieceType {
-    NONE,
-    KING,
-    PAWN,
-    KNIGHT,
-    BISHOP,
-    ROOK,
-    QUEEN,
-}
-
-#[derive(Clone, Copy)]
-struct Pawn {
-    p_type: PieceType,
-    color: Color,
-    has_moved: bool,
-}
-
-impl Pawn {
-    pub fn is_none(&self) -> bool {
-        self.p_type == PieceType::NONE
-    }
-
-    pub fn is_sliding(&self) -> bool {
-        return match self.p_type {
-            PieceType::BISHOP | PieceType::ROOK | PieceType::QUEEN => true,
-            _ => false,
-        };
-    }
-
-    pub fn get_moves(&self) -> Vec<i32> {
-        if self.p_type == PieceType::NONE {
-            return Vec::new();
-        }
-        // TODO store as static
-        let mut bishop_moves = Vec::new();
-        let mut rook_moves = Vec::new();
-
-        for i in 1..8 {
-            if self.color == Color::BLACK {
-                bishop_moves.push(9 * i); // right diagonal
-                bishop_moves.push(-9 * i);
-            } else {
-                bishop_moves.push(7 * i); // left diagonal
-                bishop_moves.push(-7 * i);
-            }
-
-            rook_moves.push(8 * i);
-            rook_moves.push(-8 * i);
-            rook_moves.push(i);
-            rook_moves.push(-1 * i);
-        }
-
-        let mut queen_moves = Vec::new();
-        queen_moves.extend_from_slice(&rook_moves);
-        queen_moves.extend_from_slice(&bishop_moves);
-
-        let mut modifier = 1;
-        if self.color == Color::BLACK {
-            modifier = -1;
-        }
-
-        // TODO: handle taking pieces
-        let mut pawn_moves = vec![8 * modifier, 7 * modifier, 9 * modifier];
-        if !self.has_moved {
-            pawn_moves.push(16 * modifier);
-        }
-
-        return match self.p_type {
-            PieceType::NONE => Vec::new(),
-            PieceType::KING => vec![-1, 7, 8, 9, 1, -7, -8, -9],
-            PieceType::PAWN => pawn_moves,
-            PieceType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
-            PieceType::BISHOP => bishop_moves,
-            PieceType::ROOK => rook_moves,
-            PieceType::QUEEN => queen_moves,
-        };
-    }
-
-    pub fn get_sliding_moves(&self) -> Vec<i32> {
-        return match self.p_type {
-            PieceType::BISHOP => vec![9, 7, -9, -7],
-            PieceType::ROOK => vec![8, 1, -8, -1],
-            PieceType::QUEEN => vec![9, 7, -9, -7, 8, 1, -8, -1],
-            _ => Vec::new(),
-        };
-    }
-}
-
-impl Pawn {
-    fn default() -> Self {
-        Pawn {
-            p_type: PieceType::NONE,
-            color: Color::NONE,
-            has_moved: false,
-        }
-    }
-
-    fn visualize(&self) -> String {
-        let ch = match self.p_type {
-            PieceType::NONE => "",
-            PieceType::KING => "k",
-            PieceType::PAWN => "p",
-            PieceType::KNIGHT => "n",
-            PieceType::BISHOP => "b",
-            PieceType::ROOK => "r",
-            PieceType::QUEEN => "q",
-        };
-
-        return match self.color {
-            Color::NONE => "x".to_string(),
-            Color::BLACK => ch.to_string(),
-            Color::WHITE => ch.to_uppercase(),
-        };
-    }
-}
-
 #[derive(Clone)]
 pub struct Board {
-    squares: [Pawn; 64], // 0 is left lower corner
+    squares: [Piece; 64], // 0 is left lower corner
     color_to_move: Color,
-    kings_positions: HashMap<Color, i32>,
+    kings_positions: HashMap<Color, usize>,
     debug: bool,
 }
 
@@ -151,7 +18,7 @@ const FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 impl Board {
     pub fn default() -> Board {
         let mut b = Board {
-            squares: [Pawn::default(); 64],
+            squares: [Piece::default(); 64],
             color_to_move: Color::WHITE,
             kings_positions: HashMap::new(),
             debug: false,
@@ -165,7 +32,7 @@ impl Board {
     }
 
     pub fn read_fen(&mut self, fen: &str) {
-        self.squares = [Pawn::default(); 64]; // reset board
+        self.squares = [Piece::default(); 64]; // reset board
         self.kings_positions = HashMap::new();
         let piece_from_char: HashMap<char, PieceType> = [
             ('r', PieceType::ROOK),
@@ -196,15 +63,15 @@ impl Board {
                             true => Color::BLACK,
                             false => Color::WHITE,
                         };
-                        let p = Pawn {
-                            p_type: piece_from_char
+                        let inx = (rank * 8 + file) as usize;
+                        let p = Piece::new(
+                            piece_from_char
                                 .get(&char::to_ascii_lowercase(&c))
                                 .unwrap()
                                 .clone(),
                             color,
-                            has_moved: false,
-                        };
-                        let inx = rank * 8 + file;
+                            inx,
+                        );
                         self.squares[inx as usize] = p;
                         if p.p_type == PieceType::KING {
                             self.kings_positions.insert(color, inx);
@@ -278,17 +145,16 @@ impl Board {
     fn make_move(&mut self, from: usize, to: usize) {
         self.squares[to] = self.squares[from];
         self.squares[to].has_moved = true;
-        self.squares[from] = Pawn::default();
+        self.squares[from] = Piece::default();
         self.color_to_move = self.color_to_move.opposite();
         if self.squares[to].p_type == PieceType::KING {
-            self.kings_positions
-                .insert(self.squares[to].color, to as i32);
+            self.kings_positions.insert(self.squares[to].color, to);
         }
     }
 
     // translate_move gets algebraic notation and translates it to move
     // e.g. Nxe5, Qh5+, g5, hxg5+
-    fn translate_pgn_move(&mut self, m: &str) -> Result<(i32, i32), &'static str> {
+    fn translate_pgn_move(&mut self, m: &str) -> Result<(usize, usize), &'static str> {
         if m == "O-O" {
             // short castle
             unimplemented!("short castle")
@@ -362,32 +228,31 @@ impl Board {
         piece_type: PieceType,
         color: Color,
         additional_info: String,
-    ) -> Vec<i32> {
-        let mut places = Vec::new();
+    ) -> Vec<usize> {
+        let mut places: Vec<usize> = Vec::new();
 
         self.squares.iter().enumerate().for_each(|(i, p)| {
             if p.p_type == piece_type && p.color == color {
                 if additional_info.len() == 1 {
-                    let i = i as i32;
                     // there's additional info
                     let info = additional_info.chars().next().unwrap();
                     if info.is_digit(10) {
                         // check for row
-                        let row = info.to_digit(10).unwrap() as i32;
+                        let row = info.to_digit(10).unwrap() as usize;
                         if (row - 1) * 8 >= i && row * 8 < i {
                             places.push(i);
                         }
                     } else {
                         // check for column
                         let column = letter_to_i32(&info);
-                        let possible_indexes: Vec<i32> =
-                            (1..9).map(|x| column + 8 * (x - 1)).collect();
+                        let possible_indexes: Vec<usize> =
+                            (1..9).map(|x| (column + 8 * (x - 1)) as usize).collect();
                         if possible_indexes.contains(&i) {
-                            places.push(i as i32)
+                            places.push(i)
                         }
                     }
                 } else {
-                    places.push(i as i32)
+                    places.push(i)
                 }
             }
         });
@@ -395,8 +260,8 @@ impl Board {
     }
 
     // find_pawn_places takes e.g. 'e' and returns all pawn position that is on 'e' line
-    fn find_pawn_places(&self, line: &str) -> Vec<i32> {
-        let mut places = Vec::new();
+    fn find_pawn_places(&self, line: &str) -> Vec<usize> {
+        let mut places: Vec<usize> = Vec::new();
         if line.len() != 1 {
             panic!("line len must be 1")
         }
@@ -404,8 +269,8 @@ impl Board {
         line.chars().for_each(|c| inx = c as i32 - 'a' as i32); // only 1 iteration
 
         for i in 0..7 {
-            let index = inx + 8 * i;
-            let p = self.squares[index as usize];
+            let index = (inx + 8 * i) as usize;
+            let p = self.squares[index];
             if p.p_type == PieceType::PAWN && p.color == self.color_to_move {
                 places.push(index);
             }
@@ -451,9 +316,9 @@ impl Board {
     }
 
     // validate_move validates if move is legit. It checks every aspect of a game.
-    fn validate_move(&mut self, from: i32, to: i32) -> Result<(), &'static str> {
-        let piece = self.squares[from as usize];
-        let position_to = self.squares[to as usize];
+    fn validate_move(&mut self, from: usize, to: usize) -> Result<(), &'static str> {
+        let piece = self.squares[from];
+        let position_to = self.squares[to];
 
         // TODO: check if there won't be check on us
         if piece.is_none()
@@ -469,8 +334,9 @@ impl Board {
         };
 
         let mut squares_copy = self.squares.clone();
-        squares_copy[from as usize] = Pawn::default();
-        squares_copy[to as usize] = piece;
+        let to = to as usize;
+        squares_copy[from as usize] = Piece::default();
+        squares_copy[to] = piece;
         let mut kings_positions = self.kings_positions.clone();
         if piece.p_type == PieceType::KING {
             kings_positions.insert(piece.color, to);
@@ -492,15 +358,15 @@ impl Board {
     fn is_check(
         &self,
         color: Color,
-        squares_copy: [Pawn; 64],
-        kings_positions: &HashMap<Color, i32>,
+        squares_copy: [Piece; 64],
+        kings_positions: &HashMap<Color, usize>,
     ) -> bool {
         // check for check
         let king_pos = kings_positions.get(&color).unwrap();
         for (inx, p) in squares_copy.iter().enumerate() {
             if color != p.color && !p.is_none() {
                 if self
-                    .is_move_possible(p, inx as i32, *king_pos, squares_copy)
+                    .is_move_possible(p, inx, *king_pos, squares_copy)
                     .is_ok()
                 {
                     return true;
@@ -513,18 +379,22 @@ impl Board {
     // is_move_possible checks is move is 'physically' legit.
     fn is_move_possible(
         &self,
-        piece: &Pawn,
-        from: i32,
-        to: i32,
-        squares: [Pawn; 64],
+        piece: &Piece,
+        from: usize,
+        to: usize,
+        squares: [Piece; 64],
     ) -> Result<(), &'static str> {
         let available_moves = piece.get_moves();
-        if !available_moves.contains(&(to - from)) {
+        let transition = to as i32 - from as i32;
+        if !available_moves.contains(&transition) {
             return Err("that piece cannot make moves like that!");
         }
 
         // check if there's no other piece on your way
         if piece.is_sliding() {
+            let to = to as i32;
+            let from = from as i32;
+
             let sliding_moves = piece.get_sliding_moves();
             let mut blocked = false;
             let mut is_valid = false;
@@ -555,13 +425,13 @@ impl Board {
         Ok(())
     }
 
-    fn translate_position(&self, pos: &str) -> i32 {
+    fn translate_position(&self, pos: &str) -> usize {
         let mut inx: i32 = 0;
         let (col, row) = pos.split_at(1);
         col.chars().for_each(|c| inx += letter_to_i32(&c));
         row.chars()
             .for_each(|c| inx += (c.to_digit(10).unwrap() as i32 - 1) * 8);
-        inx
+        inx as usize
     }
 }
 
