@@ -60,10 +60,13 @@ impl Pawn {
         let mut rook_moves = Vec::new();
 
         for i in 1..8 {
-            bishop_moves.push(9 * i); // right diagonal
-            bishop_moves.push(7 * i); // left diagonal
-            bishop_moves.push(-7 * i);
-            bishop_moves.push(-9 * i);
+            if self.color == Color::BLACK {
+                bishop_moves.push(9 * i); // right diagonal
+                bishop_moves.push(-9 * i);
+            } else {
+                bishop_moves.push(7 * i); // left diagonal
+                bishop_moves.push(-7 * i);
+            }
 
             rook_moves.push(8 * i);
             rook_moves.push(-8 * i);
@@ -143,7 +146,7 @@ pub struct Board {
     debug: bool,
 }
 
-const FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR";
+const FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 
 impl Board {
     pub fn default() -> Board {
@@ -228,9 +231,24 @@ impl Board {
             if color_counter == 0 {
                 game = game.replacen(format!("{}.", general_counter).as_str(), "", 1);
             }
-            let temp_game = game.to_owned();
-            let (chess_move, trimmed) = temp_game.split_once(" ").unwrap();
-            game = String::from(trimmed);
+            let mut temp_game = game.to_owned();
+            while temp_game.starts_with(" ") {
+                temp_game = temp_game.replacen(" ", "", 1)
+            }
+
+            let (chess_move, trimmed) = match temp_game.split_once(" ") {
+                Some((chess_move, trimmed)) => (chess_move, trimmed),
+                None => (temp_game.as_str(), ""), // last move
+            };
+            if trimmed != "" {
+                game = String::from(trimmed);
+            } else {
+                game = String::new();
+            }
+
+            if self.debug {
+                println!("making {} move", chess_move);
+            }
 
             match self.make_pgn_move(chess_move) {
                 Err(e) => return Err(e),
@@ -251,11 +269,9 @@ impl Board {
             Ok((from, to)) => (from, to),
             Err(err) => return Err(err),
         };
-        if self.debug {
-            println!("png move: {}, ({}, {})", m, from, to)
-        }
         let from = from as usize;
         let to = to as usize;
+        self.make_move(from, to);
         Ok(())
     }
 
@@ -283,7 +299,7 @@ impl Board {
 
         let mut pawn_move = false;
         let pawn_letters = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
-        let m = m.replace("x", "").replace("+", "");
+        let m = m.replace("x", "").replace("+", "").replace("#", "");
 
         for l in &pawn_letters {
             if m.starts_with(l) {
@@ -309,16 +325,28 @@ impl Board {
                 places = self.find_pawn_places(first);
             }
         } else {
-            let (first, second) = m.split_at(1);
+            let (first, mut second) = m.split_at(1);
+            let mut additional_info = String::new();
             let piece_to_find = match first {
-                "N" => PieceType::KNIGHT,
+                "N" => {
+                    // both knights can jump into the same square
+                    // we need to check if that is happening
+                    //
+                    // basically check len of move and check for given row/column of a knight
+                    if second.len() != 2 {
+                        let mut chars = second.chars();
+                        additional_info = chars.next().unwrap().to_string();
+                        second = chars.as_str();
+                    }
+                    PieceType::KNIGHT
+                }
                 "Q" => PieceType::QUEEN,
                 "B" => PieceType::BISHOP,
                 "R" => PieceType::ROOK,
                 "K" => PieceType::KING,
                 _ => return Err("invalid piece"),
             };
-            places = self.find_piece_places(piece_to_find, self.color_to_move);
+            places = self.find_piece_places(piece_to_find, self.color_to_move, additional_info);
             direction = self.translate_position(second);
         }
         for place in &places {
@@ -329,12 +357,38 @@ impl Board {
         return Err("invalid move");
     }
 
-    fn find_piece_places(&self, piece_type: PieceType, color: Color) -> Vec<i32> {
+    fn find_piece_places(
+        &self,
+        piece_type: PieceType,
+        color: Color,
+        additional_info: String,
+    ) -> Vec<i32> {
         let mut places = Vec::new();
 
         self.squares.iter().enumerate().for_each(|(i, p)| {
             if p.p_type == piece_type && p.color == color {
-                places.push(i as i32)
+                if additional_info.len() == 1 {
+                    let i = i as i32;
+                    // there's additional info
+                    let info = additional_info.chars().next().unwrap();
+                    if info.is_digit(10) {
+                        // check for row
+                        let row = info.to_digit(10).unwrap() as i32;
+                        if (row - 1) * 8 >= i && row * 8 < i {
+                            places.push(i);
+                        }
+                    } else {
+                        // check for column
+                        let column = letter_to_i32(&info);
+                        let possible_indexes: Vec<i32> =
+                            (1..9).map(|x| column + 8 * (x - 1)).collect();
+                        if possible_indexes.contains(&i) {
+                            places.push(i as i32)
+                        }
+                    }
+                } else {
+                    places.push(i as i32)
+                }
             }
         });
         places
@@ -409,7 +463,7 @@ impl Board {
             return Err("piece is none, position_to is occupied by the same color piece or it is not your move");
         }
 
-        match self.is_move_possible(&piece, from, to) {
+        match self.is_move_possible(&piece, from, to, self.squares) {
             Ok(_) => {}
             Err(e) => return Err(e),
         };
@@ -426,12 +480,12 @@ impl Board {
             return Err("there will be check after a move");
         }
 
-        if self.debug {
-            println!(
-                "check detected: {}",
-                self.is_check(piece.color.opposite(), squares_copy, &kings_positions)
-            )
-        }
+        // if self.debug {
+        //     println!(
+        //         "check detected: {}",
+        //         self.is_check(piece.color.opposite(), squares_copy, &kings_positions)
+        //     )
+        // }
         Ok(())
     }
 
@@ -445,7 +499,10 @@ impl Board {
         let king_pos = kings_positions.get(&color).unwrap();
         for (inx, p) in squares_copy.iter().enumerate() {
             if color != p.color && !p.is_none() {
-                if self.is_move_possible(p, inx as i32, *king_pos).is_ok() {
+                if self
+                    .is_move_possible(p, inx as i32, *king_pos, squares_copy)
+                    .is_ok()
+                {
                     return true;
                 }
             }
@@ -454,7 +511,13 @@ impl Board {
     }
 
     // is_move_possible checks is move is 'physically' legit.
-    fn is_move_possible(&self, piece: &Pawn, from: i32, to: i32) -> Result<(), &'static str> {
+    fn is_move_possible(
+        &self,
+        piece: &Pawn,
+        from: i32,
+        to: i32,
+        squares: [Pawn; 64],
+    ) -> Result<(), &'static str> {
         let available_moves = piece.get_moves();
         if !available_moves.contains(&(to - from)) {
             return Err("that piece cannot make moves like that!");
@@ -479,7 +542,7 @@ impl Board {
                         is_valid = true;
                         break;
                     }
-                    if !self.squares[from_temp as usize].is_none() {
+                    if !squares[from_temp as usize].is_none() {
                         blocked = true;
                     }
                 }
@@ -495,11 +558,15 @@ impl Board {
     fn translate_position(&self, pos: &str) -> i32 {
         let mut inx: i32 = 0;
         let (col, row) = pos.split_at(1);
-        col.chars().for_each(|c| inx += c as i32 - 'a' as i32);
+        col.chars().for_each(|c| inx += letter_to_i32(&c));
         row.chars()
             .for_each(|c| inx += (c.to_digit(10).unwrap() as i32 - 1) * 8);
         inx
     }
+}
+
+fn letter_to_i32(l: &char) -> i32 {
+    *l as i32 - 'a' as i32
 }
 
 #[cfg(test)]
@@ -572,12 +639,26 @@ mod tests {
 
     #[test]
     fn read_pgn() {
-        let mut pgn = "1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
+        let pgn = "1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
     Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
     14.Rxh5#";
         let mut b = Board::default();
         b.allow_debug();
-        assert_eq!(b.read_pgn(pgn, true).err().unwrap(), "");
+        assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
+    }
+
+    #[test]
+    fn read_pgn_kasparov_topolov() {
+        let pgn = "1. e4 d6 2. d4 Nf6 3. Nc3 g6 4. Be3 Bg7 5. Qd2 c6 6. f3 b5 7. Nge2 Nbd7 8. Bh6
+Bxh6 9. Qxh6 Bb7 10. a3 e5 11. O-O-O Qe7 12. Kb1 a6 13. Nc1 O-O-O 14. Nb3 exd4
+15. Rxd4 c5 16. Rd1 Nb6 17. g3 Kb8 18. Na5 Ba8 19. Bh3 d5 20. Qf4+ Ka7 21. Rhe1
+d4 22. Nd5 Nbxd5 23. exd5 Qd6 24. Rxd4 cxd4 25. Re7+ Kb6 26. Qxd4+ Kxa5 27. b4+
+Ka4 28. Qc3 Qxd5 29. Ra7 Bb7 30. Rxb7 Qc4 31. Qxf6 Kxa3 32. Qxa6+ Kxb4 33. c3+
+Kxc3 34. Qa1+ Kd2 35. Qb2+ Kd1 36. Bf1 Rd2 37. Rd7 Rxd7 38. Bxc4 bxc4 39. Qxh8
+Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7";
+        let mut b = Board::default();
+        b.allow_debug();
+        assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
     }
 
     #[test]
