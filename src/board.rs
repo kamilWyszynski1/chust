@@ -88,7 +88,7 @@ impl Board {
     // Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
     // 14.Rxh5#"
     pub fn read_pgn(&mut self, pgn: &str, vis_flag: bool) -> Result<(), &'static str> {
-        let mut game = String::from(pgn.replace("\n", "").replace("  ", " "));
+        let mut game = String::from(pgn.replace("\n", " ").replace("  ", " "));
         let mut general_counter = 1;
         let mut color_counter = 0;
         loop {
@@ -132,14 +132,17 @@ impl Board {
     }
 
     fn make_pgn_move(&mut self, m: &str) -> Result<(), &'static str> {
-        let (from, to) = match self.translate_pgn_move(m) {
-            Ok((from, to)) => (from, to),
+        let (places, direction) = match self.translate_pgn_move(m) {
+            Ok((places, direction)) => (places, direction),
             Err(err) => return Err(err),
         };
-        let from = from as usize;
-        let to = to as usize;
-        self.make_move(from, to);
-        Ok(())
+        for place in &places {
+            if self.validate_move(*place, direction).is_ok() {
+                self.make_move(*place, direction);
+                return Ok(());
+            }
+        }
+        Err("invalid move")
     }
 
     fn make_move(&mut self, from: usize, to: usize) {
@@ -152,9 +155,9 @@ impl Board {
         }
     }
 
-    // translate_move gets algebraic notation and translates it to move
+    // translate_move gets algebraic notation and parses it to vec of possible 'from' -> 'to' move
     // e.g. Nxe5, Qh5+, g5, hxg5+
-    fn translate_pgn_move(&mut self, m: &str) -> Result<(usize, usize), &'static str> {
+    fn translate_pgn_move(&mut self, m: &str) -> Result<(Vec<usize>, usize), &'static str> {
         if m == "O-O" {
             // short castle
             unimplemented!("short castle")
@@ -215,12 +218,7 @@ impl Board {
             places = self.find_piece_places(piece_to_find, self.color_to_move, additional_info);
             direction = self.translate_position(second);
         }
-        for place in &places {
-            if self.validate_move(*place, direction).is_ok() {
-                return Ok((*place, direction));
-            }
-        }
-        return Err("invalid move");
+        Ok((places, direction))
     }
 
     fn find_piece_places(
@@ -447,8 +445,6 @@ mod tests {
     #[test]
     fn block_detection() {
         let mut b = board::Board::default();
-        assert_eq!(b.make_move_internal_notation("c1g5").unwrap(), ());
-
         b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
         assert_eq!(
             b.make_move_internal_notation("c1g5").err().unwrap(),
@@ -534,40 +530,40 @@ Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7";
     #[test]
     fn translate_pgn_move() {
         let mut b = Board::default();
-        assert_eq!(b.translate_pgn_move("Nxe5").err().unwrap(), "invalid move");
-        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (1, 18));
-        assert_eq!(b.translate_pgn_move("Nf3").unwrap(), (6, 21));
-        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (1, 18));
-        assert_eq!(b.translate_pgn_move("Na3").unwrap(), (1, 16));
-        assert_eq!(b.translate_pgn_move("Nh3").unwrap(), (6, 23));
-
+        assert_eq!(b.translate_pgn_move("Nxe5").unwrap(), (vec![1, 6], 36));
+        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (vec![1, 6], 18));
+        assert_eq!(b.translate_pgn_move("Nf3").unwrap(), (vec![1, 6], 21));
+        assert_eq!(b.translate_pgn_move("Nc3").unwrap(), (vec![1, 6], 18));
+        assert_eq!(b.translate_pgn_move("Na3").unwrap(), (vec![1, 6], 16));
+        assert_eq!(b.translate_pgn_move("Nh3").unwrap(), (vec![1, 6], 23));
+        //
         b.read_fen("rnbqkbnr/pppppppp/8/8/8/8/8/RNBQKBNR");
         // white square bishop
-        assert_eq!(b.translate_pgn_move("Be2").unwrap(), (5, 12));
-        assert_eq!(b.translate_pgn_move("Bd3").unwrap(), (5, 19));
-        assert_eq!(b.translate_pgn_move("Bc4").unwrap(), (5, 26));
-        assert_eq!(b.translate_pgn_move("Bb5").unwrap(), (5, 33));
-        assert_eq!(b.translate_pgn_move("Ba6").unwrap(), (5, 40));
+        assert_eq!(b.translate_pgn_move("Be2").unwrap(), (vec![2, 5], 12));
+        assert_eq!(b.translate_pgn_move("Bd3").unwrap(), (vec![2, 5], 19));
+        assert_eq!(b.translate_pgn_move("Bc4").unwrap(), (vec![2, 5], 26));
+        assert_eq!(b.translate_pgn_move("Bb5").unwrap(), (vec![2, 5], 33));
+        assert_eq!(b.translate_pgn_move("Ba6").unwrap(), (vec![2, 5], 40));
     }
 
     #[test]
     fn translate_pgn_move_pawns() {
         let mut b = Board::default();
-        assert_eq!(b.translate_pgn_move("e4").unwrap(), (12, 28));
-        assert_eq!(b.translate_pgn_move("e3").unwrap(), (12, 20));
+        assert_eq!(b.translate_pgn_move("e4").unwrap(), (vec![12], 28));
+        assert_eq!(b.translate_pgn_move("e3").unwrap(), (vec![12], 20));
 
-        assert_eq!(b.translate_pgn_move("a4").unwrap(), (8, 24));
-        assert_eq!(b.translate_pgn_move("a3").unwrap(), (8, 16));
+        assert_eq!(b.translate_pgn_move("a4").unwrap(), (vec![8], 24));
+        assert_eq!(b.translate_pgn_move("a3").unwrap(), (vec![8], 16));
 
-        assert_eq!(b.translate_pgn_move("h4").unwrap(), (15, 31));
-        assert_eq!(b.translate_pgn_move("h3").unwrap(), (15, 23));
+        assert_eq!(b.translate_pgn_move("h4").unwrap(), (vec![15], 31));
+        assert_eq!(b.translate_pgn_move("h3").unwrap(), (vec![15], 23));
 
         // takes
         b.read_fen("k7/8/8/8/8/p7/PPPPPPPP/K7");
-        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (9, 16));
+        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (vec![9], 16));
 
         b.read_fen("8/8/8/8/1k6/p7/PPPPPPPP/K7");
         b.allow_debug();
-        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (9, 16));
+        assert_eq!(b.translate_pgn_move("bxa3").unwrap(), (vec![9], 16));
     }
 }
