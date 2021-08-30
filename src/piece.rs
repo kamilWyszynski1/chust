@@ -33,7 +33,6 @@ pub struct Piece {
     pub p_type: PieceType,
     pub color: Color,
     pub has_moved: bool,
-    position: usize,
 }
 
 impl Piece {
@@ -42,15 +41,13 @@ impl Piece {
             p_type: PieceType::NONE,
             color: Color::NONE,
             has_moved: false,
-            position: 0,
         }
     }
 
-    pub fn new(p_type: PieceType, color: Color, position: usize) -> Self {
+    pub fn new(p_type: PieceType, color: Color) -> Self {
         Piece {
             p_type,
             color,
-            position,
             has_moved: false,
         }
     }
@@ -84,9 +81,9 @@ impl Piece {
         };
     }
 
-    fn get_moves_for_rook(&self) -> Vec<i32> {
+    fn get_moves_for_rook(&self, position: usize) -> Vec<i32> {
         let mut rook_moves = Vec::<i32>::new();
-        let ptcr = position_to_row_col(self.position);
+        let ptcr = position_to_row_col(position);
         if ptcr.is_none() {
             return Vec::new();
         }
@@ -106,9 +103,9 @@ impl Piece {
         return rook_moves;
     }
 
-    fn get_moves_for_bishop(&self) -> Vec<i32> {
+    fn get_moves_for_bishop(&self, position: usize) -> Vec<i32> {
         let mut bishop_moves = Vec::<i32>::new();
-        let ptcr = position_to_row_col(self.position);
+        let ptcr = position_to_row_col(position);
         if ptcr.is_none() {
             return Vec::new();
         }
@@ -134,28 +131,46 @@ impl Piece {
         return bishop_moves;
     }
 
-    pub fn get_moves(&self) -> Vec<i32> {
+    fn get_moves_for_pawn(&self, position: usize) -> Vec<i32> {
         let mut modifier = 1;
         if self.color == Color::BLACK {
             modifier = -1;
         }
 
-        // TODO: handle taking pieces
-        let mut pawn_moves = vec![8 * modifier, 7 * modifier, 9 * modifier];
+        let (_, col) = position_to_row_col(position).unwrap();
+        let mut pawn_moves = vec![8 * modifier];
+
+        if col == 1 {
+            pawn_moves.push(9 * modifier)
+        } else if col == 8 {
+            pawn_moves.push(7 * modifier)
+        } else {
+            pawn_moves.extend_from_slice(&*vec![7 * modifier, 9 * modifier]);
+        }
+
         if !self.has_moved {
             pawn_moves.push(16 * modifier);
         }
+        return pawn_moves;
+    }
 
+    pub fn get_moves(&self, position: usize) -> Vec<i32> {
         return match self.p_type {
             PieceType::NONE => Vec::new(),
-            PieceType::KING => vec![-1, 7, 8, 9, 1, -7, -8, -9],
-            PieceType::PAWN => pawn_moves,
+            PieceType::KING => {
+                let mut moves = vec![-1, 7, 8, 9, 1, -7, -8, -9];
+                if !self.has_moved {
+                    moves.extend_from_slice(&*vec![-2, 2]);
+                }
+                moves
+            }
+            PieceType::PAWN => self.get_moves_for_pawn(position),
             PieceType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
-            PieceType::BISHOP => self.get_moves_for_bishop(),
-            PieceType::ROOK => self.get_moves_for_rook(),
+            PieceType::BISHOP => self.get_moves_for_bishop(position),
+            PieceType::ROOK => self.get_moves_for_rook(position),
             PieceType::QUEEN => {
-                let r = self.get_moves_for_rook();
-                let b = self.get_moves_for_bishop();
+                let r = self.get_moves_for_rook(position);
+                let b = self.get_moves_for_bishop(position);
                 let mut q = Vec::new();
                 q.extend_from_slice(&r);
                 q.extend_from_slice(&b);
@@ -203,58 +218,58 @@ mod tests {
 
     #[test]
     fn test_get_moves() {
-        let p = Piece::new(PieceType::ROOK, Color::WHITE, 25);
-        let mut moves = p.get_moves();
+        let p = Piece::new(PieceType::ROOK, Color::WHITE);
+        let mut moves = p.get_moves(25);
         moves.sort();
         assert_eq!(
             moves,
             vec![-24, -16, -8, -1, 1, 2, 3, 4, 5, 6, 8, 16, 24, 32]
         );
 
-        let p = Piece::new(PieceType::ROOK, Color::WHITE, 37);
-        let mut moves = p.get_moves();
+        let p = Piece::new(PieceType::ROOK, Color::WHITE);
+        let mut moves = p.get_moves(37);
         moves.sort();
         assert_eq!(
             moves,
             vec![-32, -24, -16, -8, -5, -4, -3, -2, -1, 1, 2, 8, 16, 24]
         );
 
-        let p = Piece::new(PieceType::ROOK, Color::WHITE, 60);
-        let mut moves = p.get_moves();
+        let p = Piece::new(PieceType::ROOK, Color::WHITE);
+        let mut moves = p.get_moves(60);
         moves.sort();
         assert_eq!(
             moves,
             vec![-56, -48, -40, -32, -24, -16, -8, -4, -3, -2, -1, 1, 2, 3]
         );
 
-        let p = Piece::new(PieceType::ROOK, Color::WHITE, 0);
-        let mut moves = p.get_moves();
+        let p = Piece::new(PieceType::ROOK, Color::WHITE);
+        let mut moves = p.get_moves(0);
         moves.sort();
         assert_eq!(moves, vec![1, 2, 3, 4, 5, 6, 7, 8, 16, 24, 32, 40, 48, 56]);
     }
     #[test]
     fn test_get_moves_for_bishop() {
-        let p = Piece::new(PieceType::BISHOP, Color::WHITE, 53);
-        let mut moves = p.get_moves_for_bishop();
+        let p = Piece::new(PieceType::BISHOP, Color::WHITE);
+        let mut moves = p.get_moves_for_bishop(53);
         moves.sort();
         assert_eq!(moves, vec![-45, -36, -27, -18, -14, -9, -7, 7, 9]);
 
-        let p = Piece::new(PieceType::BISHOP, Color::WHITE, 33);
-        let mut moves = p.get_moves_for_bishop();
+        let p = Piece::new(PieceType::BISHOP, Color::WHITE);
+        let mut moves = p.get_moves_for_bishop(33);
         moves.sort();
         let mut wanted_moves = vec![-9, -7, -14, -21, -28, 7, 9, 18, 27];
         wanted_moves.sort();
         assert_eq!(moves, wanted_moves);
 
-        let p = Piece::new(PieceType::BISHOP, Color::WHITE, 9);
-        let mut moves = p.get_moves_for_bishop();
+        let p = Piece::new(PieceType::BISHOP, Color::WHITE);
+        let mut moves = p.get_moves_for_bishop(9);
         moves.sort();
         let mut wanted_moves = vec![-9, -7, 7, 9, 18, 27, 36, 45, 54];
         wanted_moves.sort();
         assert_eq!(moves, wanted_moves);
 
-        let p = Piece::new(PieceType::BISHOP, Color::WHITE, 30);
-        let mut moves = p.get_moves_for_bishop();
+        let p = Piece::new(PieceType::BISHOP, Color::WHITE);
+        let mut moves = p.get_moves_for_bishop(30);
         moves.sort();
         let mut wanted_moves = vec![-27, -18, -9, -7, 9, 7, 14, 21, 28];
         wanted_moves.sort();
