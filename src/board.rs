@@ -113,14 +113,15 @@ impl Board {
                 game = String::new();
             }
 
-            if self.debug {
-                println!("making {} move", chess_move);
-            }
-
             match self.make_pgn_move(chess_move) {
                 Err(e) => return Err(e),
                 _ => {}
             }
+
+            if self.debug {
+                println!("making {} move, eval: {}", chess_move, self.calc_eval());
+            }
+
             if color_counter == 1 {
                 color_counter = 0;
                 general_counter += 1;
@@ -492,6 +493,22 @@ impl Board {
         row.chars()
             .for_each(|c| inx += (c.to_digit(10).unwrap() as i32 - 1) * 8);
         inx as usize
+    }
+
+    // calc_eval calculates value of pieces
+    fn calc_eval(&self) -> i32 {
+        return self
+            .squares
+            .iter()
+            .filter(|x| x.p_type != PieceType::NONE)
+            .map(|x| {
+                if x.color == Color::WHITE {
+                    x.p_type.points()
+                } else {
+                    x.p_type.points() * -1
+                }
+            })
+            .sum();
     }
 }
 

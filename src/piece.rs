@@ -28,6 +28,20 @@ pub enum PieceType {
     QUEEN,
 }
 
+impl PieceType {
+    pub fn points(&self) -> i32 {
+        match self {
+            PieceType::NONE => 0,
+            PieceType::KING => 0,
+            PieceType::PAWN => 1,
+            PieceType::KNIGHT => 3,
+            PieceType::BISHOP => 3,
+            PieceType::ROOK => 5,
+            PieceType::QUEEN => 9,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Piece {
     pub p_type: PieceType,
