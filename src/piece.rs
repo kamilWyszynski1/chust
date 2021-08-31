@@ -155,9 +155,17 @@ impl Piece {
         let mut pawn_moves = vec![8 * modifier];
 
         if col == 1 {
-            pawn_moves.push(9 * modifier)
+            if self.color == Color::BLACK {
+                pawn_moves.push(7 * modifier)
+            } else {
+                pawn_moves.push(9 * modifier)
+            }
         } else if col == 8 {
-            pawn_moves.push(7 * modifier)
+            if self.color == Color::BLACK {
+                pawn_moves.push(9 * modifier)
+            } else {
+                pawn_moves.push(7 * modifier)
+            }
         } else {
             pawn_moves.extend_from_slice(&*vec![7 * modifier, 9 * modifier]);
         }
@@ -288,5 +296,13 @@ mod tests {
         let mut wanted_moves = vec![-27, -18, -9, -7, 9, 7, 14, 21, 28];
         wanted_moves.sort();
         assert_eq!(moves, wanted_moves);
+    }
+
+    #[test]
+    fn test_get_moves_for_pawn() {
+        let p = Piece::new(PieceType::PAWN, Color::BLACK);
+        let mut moves = p.get_moves_for_pawn(55);
+        moves.sort();
+        assert_eq!(moves, vec![-16, -9, -8]);
     }
 }
