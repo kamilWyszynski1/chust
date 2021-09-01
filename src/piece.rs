@@ -40,6 +40,16 @@ impl PieceType {
             PieceType::QUEEN => 9,
         }
     }
+
+    pub fn from_sign(c: &str) -> Self {
+        return match c {
+            "Q" => Self::QUEEN,
+            "N" => Self::KNIGHT,
+            "B" => Self::BISHOP,
+            "R" => Self::ROOK,
+            _ => Self::NONE,
+        };
+    }
 }
 
 #[derive(Clone, Copy)]

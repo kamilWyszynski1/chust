@@ -7,17 +7,27 @@ use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 
 #[derive(Clone, PartialEq)]
-struct Transition(usize, usize);
+// Transition represents: from, to, promotion(if necessary).
+struct Transition(usize, usize, PieceType);
 
 const OUT_OF_BOARD: usize = 64;
+const DEFAULT_PROMOTION: PieceType = PieceType::NONE;
 
 impl Transition {
     fn default() -> Self {
-        Transition(OUT_OF_BOARD, OUT_OF_BOARD) // invalid transition
+        Transition(OUT_OF_BOARD, OUT_OF_BOARD, DEFAULT_PROMOTION) // invalid transition
     }
 
     fn remove_piece(from: usize) -> Self {
-        Transition(from, OUT_OF_BOARD)
+        Transition(from, OUT_OF_BOARD, DEFAULT_PROMOTION)
+    }
+
+    fn new(from: usize, to: usize) -> Self {
+        Transition(from, to, DEFAULT_PROMOTION)
+    }
+
+    fn new_with_promotion(from: usize, to: usize, promotion: PieceType) -> Self {
+        Transition(from, to, promotion)
     }
 
     fn is_default(&self) -> bool {
@@ -218,6 +228,9 @@ impl Board {
         } else {
             self.squares[to] = self.squares[from];
             self.squares[to].has_moved = true;
+            if tr.2 != DEFAULT_PROMOTION {
+                self.squares[to].p_type = tr.2;
+            }
             self.squares[from] = Piece::default();
             if swap_color {
                 self.swap_color_to_move();
@@ -225,7 +238,7 @@ impl Board {
             if self.squares[to].p_type == PieceType::KING {
                 self.kings_positions.insert(self.squares[to].color, to);
             }
-            self.last_transition = Transition(from, to);
+            self.last_transition = Transition::new(from, to);
         }
     }
 
@@ -238,24 +251,32 @@ impl Board {
     fn translate_pgn_move(&mut self, m: &str) -> Result<Vec<Transition>, &'static str> {
         if m == "O-O" {
             return if self.color_to_move == Color::BLACK {
-                Ok(vec![Transition(60, 62), Transition(63, 61)])
+                Ok(vec![Transition::new(60, 62), Transition::new(63, 61)])
             } else {
-                Ok(vec![Transition(4, 6), Transition(7, 5)])
+                Ok(vec![Transition::new(4, 6), Transition::new(7, 5)])
             };
         } else if m == "O-O-O" {
             return if self.color_to_move == Color::BLACK {
-                Ok(vec![Transition(60, 58), Transition(56, 59)])
+                Ok(vec![Transition::new(60, 58), Transition::new(56, 59)])
             } else {
-                Ok(vec![Transition(4, 2), Transition(0, 3)])
+                Ok(vec![Transition::new(4, 2), Transition::new(0, 3)])
             };
         }
 
-        let mut pawn_move = false;
+        let mut pawn_move = false; // is pawn move?
+        let mut promotion = PieceType::NONE; // is pawn promotion?
         let pawn_letters = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
-        let m = m.replace("x", "").replace("+", "").replace("#", "");
+        let mut m = m.replace("x", "").replace("+", "").replace("#", "");
 
         for l in &pawn_letters {
             if m.starts_with(l) {
+                let temp_m = m.to_owned();
+                // handle promotion e.g. hxg8=Q
+                if temp_m.contains("=") {
+                    let (f, p) = temp_m.split_once("=").unwrap();
+                    m = String::from(f);
+                    promotion = PieceType::from_sign(p);
+                }
                 pawn_move = true;
                 break;
             }
@@ -312,7 +333,7 @@ impl Board {
             direction = self.translate_position(second);
         }
         for p in &places {
-            transitions.push(Transition(*p, direction));
+            transitions.push(Transition::new_with_promotion(*p, direction, promotion));
         }
         return Ok(transitions);
     }
@@ -573,7 +594,7 @@ impl Board {
             }
             // check if that pawn made 2 moves before
             if self.last_transition
-                == Transition(
+                == Transition::new(
                     check_opposite_pawn_position_from,
                     check_opposite_pawn_position,
                 )
@@ -710,6 +731,15 @@ Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7";
 Nf3 O-O-O 9. h4 Nf6 10. h5 e6 11. Ne5 g5 12. hxg6 hxg6 13. Rxh8 Bg7 14. Rxd8+
 Kxd8 15. Nxf7+ Kc8 16. Qxe6 Bxe6 17. Ne4 Nxe4 18. dxe4 Bxf7 19. Bxa6 bxa6 20.
 Bf4 Qxf4+ 21. Kb1";
+        let mut b = Board::default();
+        b.allow_debug();
+        assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
+    }
+
+    #[test]
+    fn test_pgn_with_promotion() {
+        let pgn = "1. e4 f5 2. exf5 g6 3. fxg6 Nc6 4. gxh7 d6 5. hxg8=Q Be6 6. Qh5+ Kd7 7. Qxe6+
+Kxe6 8. Qg4+ Kd5 9. Nc3+ Kc5 10. Qc4+ Kb6 11. Qb5#";
         let mut b = Board::default();
         b.allow_debug();
         assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
