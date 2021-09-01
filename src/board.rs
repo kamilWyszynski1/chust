@@ -431,11 +431,7 @@ impl Board {
     // }
 
     // validate_move validates if move is legit. It checks every aspect of a game.
-    fn validate_move(
-        &mut self,
-        from: usize,
-        to: usize,
-    ) -> Result<Option<Transition>, &'static str> {
+    fn validate_move(&self, from: usize, to: usize) -> Result<Option<Transition>, &'static str> {
         let piece = self.squares[from];
         let position_to = self.squares[to];
 
@@ -518,7 +514,9 @@ impl Board {
         }
 
         if piece.p_type == PieceType::PAWN {
-            if (transition == 8 || transition == -8) && !squares[to].is_none() {
+            if (transition == 8 || transition == -8 || transition == 16 || transition == -16)
+                && !squares[to].is_none()
+            {
                 return Err("pawn cannot move to occupied place");
             }
             return match self.check_en_passant(piece, from, to, transition, squares) {
@@ -629,6 +627,40 @@ impl Board {
             })
             .sum();
     }
+
+    // is_check_mate takes current position and checks if it's check mate.
+    //
+    //      1. check if it's a check on a color that has the move.
+    //      2. is so - check if there's a valid move to 'avoid' check.
+    fn is_check_mate(&self) -> bool {
+        if self.is_check(self.color_to_move, self.squares, &self.kings_positions) {
+            // let color_to_move_pieces = self
+            //     .squares
+            //     .iter()
+            //     .filter(|p| p.color == self.color_to_move && p.p_type != PieceType::NONE);
+
+            for (inx, p) in self
+                .squares
+                .iter()
+                .enumerate()
+                .map(|(inx, p)| (inx, p))
+                .filter(|(inx, p)| p.color == self.color_to_move && p.p_type != PieceType::NONE)
+            {
+                let possible_moves = p.get_moves(inx);
+                for m in &possible_moves {
+                    match self.validate_move(inx, (inx as i32 + m) as usize) {
+                        Ok(_) => {
+                            println!("{}, {}", inx, inx as i32 + m);
+                            return false;
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            return true;
+        }
+        return false;
+    }
 }
 
 fn letter_to_i32(l: &char) -> i32 {
@@ -723,6 +755,7 @@ Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7";
         let mut b = Board::default();
         b.allow_debug();
         assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
+        assert_eq!(b.is_check_mate(), false);
     }
 
     #[test]
@@ -734,6 +767,7 @@ Bf4 Qxf4+ 21. Kb1";
         let mut b = Board::default();
         b.allow_debug();
         assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
+        assert_eq!(b.is_check_mate(), false);
     }
 
     #[test]
@@ -743,6 +777,7 @@ Kxe6 8. Qg4+ Kd5 9. Nc3+ Kc5 10. Qc4+ Kb6 11. Qb5#";
         let mut b = Board::default();
         b.allow_debug();
         assert_eq!(b.read_pgn(pgn, true).is_ok(), true);
+        assert_eq!(b.is_check_mate(), true);
     }
 
     // #[test]
