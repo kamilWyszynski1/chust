@@ -1,6 +1,6 @@
 ![img.png](img.png)
 
 # TODO
-* [ ] en passant
-* [ ] promotion
+* [x] en passant
+* [x] promotion
 * [ ] evaluation

@@ -1,4 +1,5 @@
 mod board;
+mod evaluation;
 mod piece;
 
 struct A {
@@ -14,5 +15,5 @@ impl A {
 fn main() {
     let v = vec![A::new(10, false), A::new(20, true), A::new(25, true)];
     let val: i32 = v.iter().map(|x| if x.b { x.a } else { x.a * -1 }).sum();
-    println!("{}", val)
+    println!("{}", val);
 }

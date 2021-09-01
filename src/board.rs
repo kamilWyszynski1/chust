@@ -1,5 +1,6 @@
 #![allow(warnings, unused)]
 
+use crate::evaluation::{Evaluator, SimpleEvaluator};
 use crate::piece::{Color, Piece, PieceType};
 use std::borrow::Borrow;
 use std::cmp::{max, min};
@@ -8,7 +9,7 @@ use std::collections::HashMap;
 
 #[derive(Clone, PartialEq)]
 // Transition represents: from, to, promotion(if necessary).
-struct Transition(usize, usize, PieceType);
+pub struct Transition(usize, usize, PieceType);
 
 const OUT_OF_BOARD: usize = 64;
 const DEFAULT_PROMOTION: PieceType = PieceType::NONE;
@@ -37,8 +38,8 @@ impl Transition {
 
 #[derive(Clone)]
 pub struct Board {
-    squares: [Piece; 64], // 0 is left lower corner
-    color_to_move: Color,
+    pub squares: [Piece; 64], // 0 is left lower corner
+    pub color_to_move: Color,
     kings_positions: HashMap<Color, usize>,
     debug: bool,
     last_transition: Transition,
@@ -150,7 +151,7 @@ impl Board {
             }
 
             if self.debug {
-                println!("making {} move, eval: {}", chess_move, self.calc_eval());
+                println!("making {} move", chess_move,);
             }
 
             if color_counter == 1 {
@@ -432,11 +433,14 @@ impl Board {
     }
 
     // validate_move validates if move is legit. It checks every aspect of a game.
-    fn validate_move(&self, from: usize, to: usize) -> Result<Option<Transition>, &'static str> {
+    pub fn validate_move(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Result<Option<Transition>, &'static str> {
         let piece = self.squares[from];
         let position_to = self.squares[to];
 
-        // TODO: check if there won't be check on us
         if piece.is_none()
             || (!position_to.is_none() && piece.color == position_to.color)
             || self.color_to_move != piece.color
@@ -613,22 +617,6 @@ impl Board {
         row.chars()
             .for_each(|c| inx += (c.to_digit(10).unwrap() as i32 - 1) * 8);
         inx as usize
-    }
-
-    // calc_eval calculates value of pieces
-    fn calc_eval(&self) -> i32 {
-        return self
-            .squares
-            .iter()
-            .filter(|x| x.p_type != PieceType::NONE)
-            .map(|x| {
-                if x.color == Color::WHITE {
-                    x.p_type.points()
-                } else {
-                    x.p_type.points() * -1
-                }
-            })
-            .sum();
     }
 
     // is_check_mate takes current position and checks if it's check mate.

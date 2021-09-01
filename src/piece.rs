@@ -1,10 +1,21 @@
 use std::cmp::min;
+use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Copy, PartialEq, Hash, Eq)]
 pub enum Color {
     NONE,
     BLACK,
     WHITE,
+}
+
+impl Display for Color {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Color::NONE => write!(f, "{}", "NONE"),
+            Color::BLACK => write!(f, "{}", "BLACK"),
+            Color::WHITE => write!(f, "{}", "WHITE"),
+        }
+    }
 }
 
 impl Color {
@@ -32,7 +43,7 @@ impl PieceType {
     pub fn points(&self) -> i32 {
         match self {
             PieceType::NONE => 0,
-            PieceType::KING => 0,
+            PieceType::KING => 200,
             PieceType::PAWN => 1,
             PieceType::KNIGHT => 3,
             PieceType::BISHOP => 3,
@@ -103,6 +114,37 @@ impl Piece {
             PieceType::BISHOP | PieceType::ROOK | PieceType::QUEEN => true,
             _ => false,
         };
+    }
+
+    pub fn get_moves(&self, position: usize) -> Vec<i32> {
+        return match self.p_type {
+            PieceType::NONE => Vec::new(),
+            PieceType::KING => self.get_moves_for_king(position),
+            PieceType::PAWN => self.get_moves_for_pawn(position),
+            PieceType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
+            PieceType::BISHOP => self.get_moves_for_bishop(position),
+            PieceType::ROOK => self.get_moves_for_rook(position),
+            PieceType::QUEEN => {
+                let r = self.get_moves_for_rook(position);
+                let b = self.get_moves_for_bishop(position);
+                let mut q = Vec::new();
+                q.extend_from_slice(&r);
+                q.extend_from_slice(&b);
+                q
+            }
+        };
+    }
+
+    fn get_moves_for_king(&self, position: usize) -> Vec<i32> {
+        let mut king_moves = Vec::<i32>::new();
+        let moves = vec![-1, 7, 8, 9, 1, -7, -8, -9];
+        for m in &moves {
+            if (position as i32) + m > 63 || (position as i32) + m < 0 {
+                continue;
+            }
+            king_moves.push(*m);
+        }
+        return king_moves;
     }
 
     fn get_moves_for_rook(&self, position: usize) -> Vec<i32> {
@@ -184,31 +226,6 @@ impl Piece {
             pawn_moves.push(16 * modifier);
         }
         return pawn_moves;
-    }
-
-    pub fn get_moves(&self, position: usize) -> Vec<i32> {
-        return match self.p_type {
-            PieceType::NONE => Vec::new(),
-            PieceType::KING => {
-                let mut moves = vec![-1, 7, 8, 9, 1, -7, -8, -9];
-                if !self.has_moved {
-                    moves.extend_from_slice(&*vec![-2, 2]);
-                }
-                moves
-            }
-            PieceType::PAWN => self.get_moves_for_pawn(position),
-            PieceType::KNIGHT => vec![6, 15, 17, 10, -6, -15, -17, -10],
-            PieceType::BISHOP => self.get_moves_for_bishop(position),
-            PieceType::ROOK => self.get_moves_for_rook(position),
-            PieceType::QUEEN => {
-                let r = self.get_moves_for_rook(position);
-                let b = self.get_moves_for_bishop(position);
-                let mut q = Vec::new();
-                q.extend_from_slice(&r);
-                q.extend_from_slice(&b);
-                q
-            }
-        };
     }
 
     pub fn get_sliding_moves(&self) -> Vec<i32> {
