@@ -3,4 +3,5 @@
 # TODO
 * [x] en passant
 * [x] promotion
-* [ ] evaluation
+* [x] evaluation
+* [ ] implement minimax evaluation using already implemented score functions.
