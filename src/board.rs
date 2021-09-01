@@ -115,9 +115,9 @@ impl Board {
         }
     }
 
-    // 1.e4 e5 2.Nf3 f6 3.Nxe5 fxe5 4.Qh5+ Ke7 5.Qxe5+ Kf7 6.Bc4+ d5 7.Bxd5+
-    // Kg6 8.h4 h5 9.Bxb7 Bxb7 10.Qf5+ Kh6 11.d4+ g5 12.Qf7 Qe7 13.hxg5+ Qxg5
-    // 14.Rxh5#"
+    // read_pgn is an entry point for pgn game.
+    //
+    // method reads whole game description and call make_pgn_move one by one.
     pub fn read_pgn(&mut self, pgn: &str, vis_flag: bool) -> Result<(), &'static str> {
         let mut game = String::from(pgn.replace("\n", " ").replace("  ", " "));
         let mut general_counter = 1;
@@ -163,6 +163,7 @@ impl Board {
         Ok(())
     }
 
+    // make_pgn_move method parses pgn move, validates and performs.
     fn make_pgn_move(&mut self, m: &str) -> Result<(), &'static str> {
         let transitions = match self.translate_pgn_move(m) {
             Ok(transitions) => transitions,
@@ -207,8 +208,10 @@ impl Board {
         Err("invalid move")
     }
 
+    // validate_castle check if wanted castle is valid.
     fn validate_castle(&self, king_pos: usize, rook_pos: usize) -> bool {
         if !self.squares[king_pos].has_moved && !self.squares[rook_pos].has_moved {
+            // iterate all places between king and rook.
             for inx in min(king_pos, rook_pos) + 1..max(king_pos, rook_pos) {
                 if !self.squares[inx].is_none() {
                     return false;
@@ -219,26 +222,31 @@ impl Board {
         return false;
     }
 
+    // make_move changes places of pieces and their types in squares vector.
     fn make_move(&mut self, tr: Transition, swap_color: bool) {
         let from = tr.0;
         let to = tr.1;
 
         if to == OUT_OF_BOARD {
+            // just delete piece, needed for en passant.
             self.squares[from] = Piece::default();
         } else {
             self.squares[to] = self.squares[from];
             self.squares[to].has_moved = true;
             if tr.2 != DEFAULT_PROMOTION {
+                // promotion (type change) needed.
                 self.squares[to].p_type = tr.2;
             }
             self.squares[from] = Piece::default();
             if swap_color {
+                // swap color wanted.
                 self.swap_color_to_move();
             }
             if self.squares[to].p_type == PieceType::KING {
+                // update position of king.
                 self.kings_positions.insert(self.squares[to].color, to);
             }
-            self.last_transition = Transition::new(from, to);
+            self.last_transition = Transition::new(from, to); // save transition.
         }
     }
 
@@ -346,8 +354,12 @@ impl Board {
     ) -> Vec<usize> {
         let mut places: Vec<usize> = Vec::new();
 
-        self.squares.iter().enumerate().for_each(|(i, p)| {
-            if p.p_type == piece_type && p.color == color {
+        self.squares
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i, p)) // vec of pieces -> vec of (index, piece)
+            .filter(|(_, p)| p.p_type == piece_type && p.color == color) // only wanted pieces
+            .for_each(|(i, p)| {
                 if additional_info.len() == 1 {
                     // there's additional info
                     let info = additional_info.chars().next().unwrap();
@@ -369,8 +381,7 @@ impl Board {
                 } else {
                     places.push(i)
                 }
-            }
-        });
+            });
         places
     }
 
@@ -420,16 +431,6 @@ impl Board {
         println!("{}", board)
     }
 
-    // make_move validates move and make it
-    // m will be always like this: a2a4 meaning that piece from a2 moves to a4
-    // pub fn make_move_internal_notation(&mut self, m: &str) -> Result<(), &'static str> {
-    //     let (first, second) = m.split_at(2);
-    //     let first_pos = self.translate_position(first);
-    //     let second_pos = self.translate_position(second);
-    //
-    //     self.validate_move(first_pos, second_pos)
-    // }
-
     // validate_move validates if move is legit. It checks every aspect of a game.
     fn validate_move(&self, from: usize, to: usize) -> Result<Option<Transition>, &'static str> {
         let piece = self.squares[from];
@@ -478,6 +479,7 @@ impl Board {
         }
     }
 
+    // is_check checks if it's check for given configuration.
     fn is_check(
         &self,
         color: Color,
@@ -560,6 +562,7 @@ impl Board {
         Ok(None)
     }
 
+    // check_en_passant checks if move is en passant, if so, returns needed Transition.
     fn check_en_passant(
         &self,
         piece: &Piece,
@@ -634,11 +637,8 @@ impl Board {
     //      2. is so - check if there's a valid move to 'avoid' check.
     fn is_check_mate(&self) -> bool {
         if self.is_check(self.color_to_move, self.squares, &self.kings_positions) {
-            // let color_to_move_pieces = self
-            //     .squares
-            //     .iter()
-            //     .filter(|p| p.color == self.color_to_move && p.p_type != PieceType::NONE);
-
+            // map vec of pieces to vec of (index, piece), filter by color to move and type and check
+            // all possible moves to prevent mate.
             for (inx, p) in self
                 .squares
                 .iter()
