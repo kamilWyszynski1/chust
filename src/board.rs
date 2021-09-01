@@ -23,7 +23,7 @@ impl Transition {
         Transition(from, OUT_OF_BOARD, DEFAULT_PROMOTION)
     }
 
-    fn new(from: usize, to: usize) -> Self {
+    pub fn new(from: usize, to: usize) -> Self {
         Transition(from, to, DEFAULT_PROMOTION)
     }
 
@@ -36,7 +36,7 @@ impl Transition {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Board {
     pub squares: [Piece; 64], // 0 is left lower corner
     pub color_to_move: Color,
@@ -224,7 +224,7 @@ impl Board {
     }
 
     // make_move changes places of pieces and their types in squares vector.
-    fn make_move(&mut self, tr: Transition, swap_color: bool) {
+    pub(crate) fn make_move(&mut self, tr: Transition, swap_color: bool) {
         let from = tr.0;
         let to = tr.1;
 
@@ -239,7 +239,7 @@ impl Board {
                 self.squares[to].p_type = tr.2;
             }
             self.squares[from] = Piece::default();
-            if swap_color {
+            if swap_color && tr.2 == DEFAULT_PROMOTION {
                 // swap color wanted.
                 self.swap_color_to_move();
             }
@@ -623,7 +623,7 @@ impl Board {
     //
     //      1. check if it's a check on a color that has the move.
     //      2. is so - check if there's a valid move to 'avoid' check.
-    fn is_check_mate(&self) -> bool {
+    pub(crate) fn is_check_mate(&self) -> bool {
         if self.is_check(self.color_to_move, self.squares, &self.kings_positions) {
             // map vec of pieces to vec of (index, piece), filter by color to move and type and check
             // all possible moves to prevent mate.

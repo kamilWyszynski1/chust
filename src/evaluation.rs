@@ -1,4 +1,4 @@
-use crate::board::Board;
+use crate::board::{Board, Transition};
 use crate::piece::{Color, Piece, PieceType};
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -197,10 +197,72 @@ impl MaterialMobilityEvaluator {
     }
 }
 
+pub struct MiniMaxiEvaluator {}
+
+impl Evaluator for MiniMaxiEvaluator {
+    fn evaluate(&self, board: &Board) -> f32 {
+        let mut b = board.clone();
+        let eval = self.maxi(&mut b, 3);
+        return eval;
+    }
+}
+
+impl MiniMaxiEvaluator {
+    fn maxi(&self, board: &mut Board, depth: usize) -> f32 {
+        if depth == 0 {
+            return simple_eval(board.squares);
+        }
+
+        let moves = self.get_all_possible_moves(board);
+        if moves.len() == 0 {
+            if board.is_check_mate() {
+                return f32::NEG_INFINITY; // check mate, lost
+            }
+            return 0.0; // pat
+        }
+
+        let mut best_evaluation = f32::NEG_INFINITY;
+
+        for mv in &moves {
+            board.make_move(mv.clone(), true);
+            let evaluation = -self.maxi(board, depth - 1);
+            best_evaluation = f32::max(best_evaluation, evaluation);
+            board.unmake_move(); // TODO
+        }
+
+        return best_evaluation;
+    }
+
+    fn get_all_possible_moves(&self, board: &Board) -> Vec<Transition> {
+        let mut transitions = Vec::new();
+        board
+            .squares
+            .iter()
+            .enumerate()
+            .map(|(inx, p)| (inx, p))
+            .filter(|(_, p)| p.color == board.color_to_move)
+            .for_each(|(inx, p)| {
+                let possible_moves = p.get_moves(inx);
+                for m in &possible_moves {
+                    match board.validate_move(inx, (inx as i32 + m) as usize) {
+                        Ok(adt) => {
+                            transitions.push(Transition::new(inx, (inx as i32 + m) as usize));
+                            if adt.is_some() {
+                                transitions.push(adt.unwrap());
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            });
+        return transitions;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::board::Board;
-    use crate::evaluation::{Evaluator, MaterialMobilityEvaluator};
+    use crate::evaluation::{Evaluator, MaterialMobilityEvaluator, MiniMaxiEvaluator};
     use crate::piece::{Color, Piece, PieceType};
 
     #[test]
@@ -264,5 +326,17 @@ Bf4 Qxf4+ 21. Kb1";
             e = m.evaluate(&b);
         }
         println!("{}", e)
+    }
+
+    #[test]
+    fn test_mini_maxi_eval() {
+        let pgn = "1. e4 d5 2. exd5 Qxd5 3. Nc3 Qa5 4. d3 c6 5. Bd2 Qc7 6. Qe2 Bd7 7. O-O-O Na6 8.
+Nf3 O-O-O 9. h4 Nf6 10. h5 e6 11. Ne5 g5 12. hxg6 hxg6 13. Rxh8 Bg7 14. Rxd8+
+Kxd8 15. Nxf7+ Kc8 16. Qxe6 Bxe6 17. Ne4 Nxe4 18. dxe4 Bxf7 19. Bxa6 bxa6 20.
+Bf4 Qxf4+ 21. Kb1";
+        let mut b = Board::default();
+        b.read_pgn(pgn, true);
+        let e = MiniMaxiEvaluator {};
+        println("{}", e.evaluate(&b));
     }
 }
