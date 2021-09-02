@@ -1,8 +1,9 @@
-use crate::board::{Board, Transition};
+#![allow(warnings, unused)]
+
+use crate::board::{Board, Transition, TransitionFlag};
 use crate::piece::{Color, Piece, PieceType};
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::ops::Add;
 
 fn simple_eval(game: [Piece; 64]) -> f32 {
     return game
@@ -227,7 +228,7 @@ impl MiniMaxiEvaluator {
             board.make_move(mv.clone(), true);
             let evaluation = -self.maxi(board, depth - 1);
             best_evaluation = f32::max(best_evaluation, evaluation);
-            board.unmake_move(); // TODO
+            // board.unmake_move(); // TODO
         }
 
         return best_evaluation;
@@ -246,7 +247,16 @@ impl MiniMaxiEvaluator {
                 for m in &possible_moves {
                     match board.validate_move(inx, (inx as i32 + m) as usize) {
                         Ok(adt) => {
-                            transitions.push(Transition::new(inx, (inx as i32 + m) as usize));
+                            let from = inx;
+                            let to = (inx as i32 + m) as usize;
+                            transitions.push(Transition::new(
+                                from,
+                                to,
+                                TransitionFlag::Move,
+                                PieceType::NONE,
+                                board.squares[from],
+                                board.squares[to],
+                            ));
                             if adt.is_some() {
                                 transitions.push(adt.unwrap());
                             }
@@ -322,7 +332,7 @@ Bf4 Qxf4+ 21. Kb1";
         b.read_pgn(pgn, true);
         let m = MaterialMobilityEvaluator {};
         let mut e: f32 = 0.0;
-        for i in 0..1000 {
+        for _ in 0..1000 {
             e = m.evaluate(&b);
         }
         println!("{}", e)
@@ -337,6 +347,6 @@ Bf4 Qxf4+ 21. Kb1";
         let mut b = Board::default();
         b.read_pgn(pgn, true);
         let e = MiniMaxiEvaluator {};
-        println("{}", e.evaluate(&b));
+        // println!()("{}", e.evaluate(&b));
     }
 }

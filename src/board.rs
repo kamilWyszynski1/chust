@@ -7,36 +7,118 @@ use std::cmp::{max, min};
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 
-#[derive(Clone, PartialEq)]
-// Transition represents: from, to, promotion(if necessary).
-pub struct Transition(usize, usize, PieceType);
+#[derive(Copy, Clone, PartialEq)]
+pub enum TransitionFlag {
+    None,
+    Promotion, // used when pawn is promoted
+    Remove,
+    EnPassant,
+    ShortCastle,
+    LongCastle,
+    Move,
+}
 
-const OUT_OF_BOARD: usize = 64;
-const DEFAULT_PROMOTION: PieceType = PieceType::NONE;
+#[derive(Copy, Clone)]
+// Transition represents: from, to, promotion(if necessary).
+pub struct Transition {
+    from: usize,
+    to: usize,
+    flag: TransitionFlag,
+    promotion: PieceType,
+    from_piece: Piece,
+    to_piece: Piece,
+}
 
 impl Transition {
     fn default() -> Self {
-        Transition(OUT_OF_BOARD, OUT_OF_BOARD, DEFAULT_PROMOTION) // invalid transition
+        Transition {
+            from: 0,
+            to: 0,
+            flag: TransitionFlag::None,
+            promotion: PieceType::NONE,
+            from_piece: Piece::default(),
+            to_piece: Piece::default(),
+        }
     }
 
-    fn remove_piece(from: usize) -> Self {
-        Transition(from, OUT_OF_BOARD, DEFAULT_PROMOTION)
+    pub fn new(
+        from: usize,
+        to: usize,
+        flag: TransitionFlag,
+        promotion: PieceType,
+        from_piece: Piece,
+        to_piece: Piece,
+    ) -> Self {
+        Transition {
+            from,
+            to,
+            flag,
+            promotion,
+            from_piece,
+            to_piece,
+        }
     }
 
-    pub fn new(from: usize, to: usize) -> Self {
-        Transition(from, to, DEFAULT_PROMOTION)
+    pub fn new_short_castle(from: usize, to: usize, piece: Piece) -> Self {
+        Transition {
+            from,
+            to,
+            flag: TransitionFlag::ShortCastle,
+            promotion: PieceType::NONE,
+            from_piece: piece,
+            to_piece: Piece::default(),
+        }
     }
 
-    fn new_with_promotion(from: usize, to: usize, promotion: PieceType) -> Self {
-        Transition(from, to, promotion)
+    pub fn new_long_castle(from: usize, to: usize, piece: Piece) -> Self {
+        Transition {
+            from,
+            to,
+            flag: TransitionFlag::LongCastle,
+            promotion: PieceType::NONE,
+            from_piece: piece,
+            to_piece: Piece::default(),
+        }
+    }
+
+    fn new_promotion(
+        from: usize,
+        to: usize,
+        from_piece: Piece,
+        to_piece: Piece,
+        promotion: PieceType,
+    ) -> Self {
+        let mut t = Transition {
+            from,
+            to,
+            flag: TransitionFlag::None,
+            promotion,
+            from_piece,
+            to_piece,
+        };
+        if promotion != PieceType::NONE {
+            t.flag = TransitionFlag::Promotion
+        }
+        return t;
+    }
+
+    fn remove_piece(from: usize, piece: Piece) -> Self {
+        Transition {
+            from,
+            to: 0,
+            flag: TransitionFlag::Remove,
+            promotion: PieceType::NONE,
+            from_piece: piece,
+            to_piece: Piece::default(),
+        }
     }
 
     fn is_default(&self) -> bool {
-        self.0 == OUT_OF_BOARD && self.1 == OUT_OF_BOARD
+        self.from == 0 && self.to == 0 && self.flag == TransitionFlag::None
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Board {
     pub squares: [Piece; 64], // 0 is left lower corner
     pub color_to_move: Color,
@@ -174,12 +256,13 @@ impl Board {
         // check if castle
         if transitions.len() == 2 {
             // king transition will be always first index
-            if self.squares[transitions.get(0).unwrap().0].p_type == PieceType::KING
-                && self.squares[transitions.get(1).unwrap().0].p_type == PieceType::ROOK
+            if self.squares[transitions.get(0).unwrap().from].p_type == PieceType::KING
+                && self.squares[transitions.get(1).unwrap().from].p_type == PieceType::ROOK
             {
-                return if self
-                    .validate_castle(transitions.get(0).unwrap().0, transitions.get(1).unwrap().0)
-                {
+                return if self.validate_castle(
+                    transitions.get(0).unwrap().from,
+                    transitions.get(1).unwrap().from,
+                ) {
                     for t in transitions {
                         self.make_move(t, false);
                     }
@@ -192,7 +275,7 @@ impl Board {
         }
 
         for t in transitions {
-            match self.validate_move(t.0, t.1) {
+            match self.validate_move(t.from, t.to) {
                 Ok(r) => {
                     match r {
                         Some(additional_transition) => {
@@ -225,30 +308,28 @@ impl Board {
 
     // make_move changes places of pieces and their types in squares vector.
     pub(crate) fn make_move(&mut self, tr: Transition, swap_color: bool) {
-        let from = tr.0;
-        let to = tr.1;
+        let from = tr.from;
+        let to = tr.to;
 
-        if to == OUT_OF_BOARD {
-            // just delete piece, needed for en passant.
+        self.squares[to] = self.squares[from];
+        self.squares[to].has_moved = true;
+        if tr.flag == TransitionFlag::Promotion {
+            // promotion (type change) needed.
+            self.squares[to].p_type = tr.promotion;
+        } else if tr.flag == TransitionFlag::Remove {
             self.squares[from] = Piece::default();
-        } else {
-            self.squares[to] = self.squares[from];
-            self.squares[to].has_moved = true;
-            if tr.2 != DEFAULT_PROMOTION {
-                // promotion (type change) needed.
-                self.squares[to].p_type = tr.2;
-            }
-            self.squares[from] = Piece::default();
-            if swap_color && tr.2 == DEFAULT_PROMOTION {
-                // swap color wanted.
-                self.swap_color_to_move();
-            }
-            if self.squares[to].p_type == PieceType::KING {
-                // update position of king.
-                self.kings_positions.insert(self.squares[to].color, to);
-            }
-            self.last_transition = Transition::new(from, to); // save transition.
+            return;
         }
+        self.squares[from] = Piece::default();
+        if swap_color {
+            // swap color wanted.
+            self.swap_color_to_move();
+        }
+        if self.squares[to].p_type == PieceType::KING {
+            // update position of king.
+            self.kings_positions.insert(self.squares[to].color, to);
+        }
+        self.last_transition = tr; // save transition.
     }
 
     fn swap_color_to_move(&mut self) {
@@ -260,15 +341,27 @@ impl Board {
     fn translate_pgn_move(&mut self, m: &str) -> Result<Vec<Transition>, &'static str> {
         if m == "O-O" {
             return if self.color_to_move == Color::BLACK {
-                Ok(vec![Transition::new(60, 62), Transition::new(63, 61)])
+                Ok(vec![
+                    Transition::new_short_castle(60, 62, self.squares[60]),
+                    Transition::new_short_castle(63, 61, self.squares[63]),
+                ])
             } else {
-                Ok(vec![Transition::new(4, 6), Transition::new(7, 5)])
+                Ok(vec![
+                    Transition::new_short_castle(4, 6, self.squares[4]),
+                    Transition::new_short_castle(7, 5, self.squares[7]),
+                ])
             };
         } else if m == "O-O-O" {
             return if self.color_to_move == Color::BLACK {
-                Ok(vec![Transition::new(60, 58), Transition::new(56, 59)])
+                Ok(vec![
+                    Transition::new_short_castle(60, 58, self.squares[60]),
+                    Transition::new_short_castle(56, 59, self.squares[56]),
+                ])
             } else {
-                Ok(vec![Transition::new(4, 2), Transition::new(0, 3)])
+                Ok(vec![
+                    Transition::new_short_castle(4, 2, self.squares[4]),
+                    Transition::new_short_castle(0, 3, self.squares[0]),
+                ])
             };
         }
 
@@ -342,7 +435,13 @@ impl Board {
             direction = self.translate_position(second);
         }
         for p in &places {
-            transitions.push(Transition::new_with_promotion(*p, direction, promotion));
+            transitions.push(Transition::new_promotion(
+                *p,
+                direction,
+                self.squares[*p],
+                self.squares[direction],
+                promotion,
+            ));
         }
         return Ok(transitions);
     }
@@ -598,13 +697,13 @@ impl Board {
                 return Err("invalid en passant");
             }
             // check if that pawn made 2 moves before
-            if self.last_transition
-                == Transition::new(
-                    check_opposite_pawn_position_from,
-                    check_opposite_pawn_position,
-                )
+            if self.last_transition.from == check_opposite_pawn_position_from
+                && self.last_transition.to == check_opposite_pawn_position
             {
-                return Ok(Some(Transition::remove_piece(check_opposite_pawn_position)));
+                return Ok(Some(Transition::remove_piece(
+                    check_opposite_pawn_position,
+                    self.squares[check_opposite_pawn_position],
+                )));
             }
         }
         Ok(None)
